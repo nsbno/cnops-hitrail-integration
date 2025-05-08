@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <!-- Don't log messages and errors when loading properties files, and they can't be found-->
+  <statusListener class="ch.qos.logback.core.status.NopStatusListener"/>
+
+  <property resource="application.properties"/>
+  <property resource="application-test.properties"/>
+  <property file="overrides.properties"/>
+
+  <!-- Enables debug logs for loggers that share the service's base package name -->
+  <logger name="${service.package.prefix}" level="DEBUG"/>
+
+  <!-- For tests and local development, we set the log.format.pretty property to pretty-format logs. -->
+  <if condition='isDefined("log.format.pretty") &amp;&amp; property("log.format.pretty").equals("true")'>
+    <then>
+      <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+          <!-- Writes object values from logging context as actual JSON (not escaped) -->
+          <mdcEntryWriter class="no.liflig.logging.LoggingContextJsonFieldWriter"/>
+        </encoder>
+
+        <file>log.jsonl</file> <!-- jsonl extension since it's newline-delimited JSON (https://jsonlines.org/) -->
+        <append>false</append>
+      </appender>
+
+      <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+          <!--
+            %replace( [%kvp{NONE}]){' \[]', ''} and %replace( [%mdc]){' \[]', ''} below adds log fields
+            (and logging context fields) in square brackets, but hides the brackets if they're empty.
+          -->
+          <!-- @formatter:off -->
+          <pattern>
+            %white([%d{HH:mm:ss}]) %highlight(%level) %cyan(%logger{36}){}%white(:) %msg%replace( [%kvp{NONE}]){' \[]', ''}%replace( [%mdc]){' \[]', ''}%n
+          </pattern>
+          <!-- @formatter:on -->
+        </encoder>
+      </appender>
+
+      <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
+      </root>
+    </then>
+    <!-- In production, we output logs as JSON -->
+    <else>
+      <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+          <!-- Writes object values from logging context as actual JSON (not escaped) -->
+          <mdcEntryWriter class="no.liflig.logging.LoggingContextJsonFieldWriter"/>
+
+          <!-- Apply to all logs. The service and version are important for some services like Datadog. -->
+          <customFields>{"service":"${service.name}","version":"${service.version}"}</customFields>
+        </encoder>
+      </appender>
+
+      <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+      </root>
+    </else>
+  </if>
+</configuration>

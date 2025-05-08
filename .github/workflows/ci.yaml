@@ -1,0 +1,147 @@
+name: ci-lambda
+on:
+  push:
+    branches: "**"
+  workflow_dispatch:
+    inputs:
+      deploy-to-dev:
+        description: "Whether to deploy to dev"
+        type: boolean
+        required: true
+        default: false
+
+env:
+  CDK_S3_KEY_NAME: cnops-hitrail-integration # For CDK getVariable - should be in PascalCase, e.g. MyLambda
+  BUILD_FAILURE_SLACK_CHANNEL: "#TODO"
+
+defaults:
+  run:
+    # NOTE: A bit stricter than the default bash options used by GitHub Actions
+    # (bash --noprofile --norc -e -o pipefail {0})
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+# NOTE: Set concurrency for the current workflow to 1
+concurrency: ci-${{ github.ref }}-${{ github.workflow }}
+
+jobs:
+  build-and-deploy:
+    timeout-minutes: 60
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+      actions: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: capralifecycle/actions-lib/check-runtime-dependencies@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+
+      - uses: capralifecycle/actions-lib/parse-config@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        id: config
+        with:
+          config-file: ".ldp.json"
+
+      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: "zulu"
+          java-version: "21.0.6"
+          java-package: jdk
+
+      - name: cache mvn
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: build and test
+        env:
+          GIT_COMMIT_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          # NOTE: Use the following token if your project does not depend on private packages:
+          # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.SHARED_GITHUB_PACKAGES_TOKEN }}
+
+          # NOTE: Uncomment if your project integrates with SonarCloud
+          #SONARCLOUD_TOKEN: ${{ secrets.SHARED_SONAR_TOKEN }}
+        run: mvn -B -U verify
+
+      - name: show errors
+        if: ${{ failure() }}
+        env:
+          FAILS_FILE: ${{ runner.temp }}/fails.txt
+        run: |
+          echo '          { find . -type f -path '*target/surefire-reports/*.txt' -exec grep -l -E '(Failures: [^0]|Errors: [^0])' {} >> "${FAILS_FILE}" \; || :; }
+          { find . -type f -path '*target/failsafe-reports/*.txt' -exec grep -l -E '(Failures: [^0]|Errors: [^0])' {} >> "${FAILS_FILE}" \; || :; }
+
+          while IFS="" read -r errorFile || [ -n "$errorFile" ]; do
+            echo "**${errorFile}**  " >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            cat "${errorFile}" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo '---' >> $GITHUB_STEP_SUMMARY
+          done < "${FAILS_FILE}"
+
+      - uses: capralifecycle/actions-lib/configure-aws-credentials@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        id: aws
+        with:
+          aws-account-id: ${{ steps.config.outputs.accountId }}
+          # NOTE: We use different roles on default and non-default branches
+          aws-iam-role-name: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.config.outputs.roleName || steps.config.outputs.limitedRoleName }}
+
+      - uses: capralifecycle/actions-lib/upload-s3-artifact@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.deploy-to-dev }}
+        id: upload-s3-artifact
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        with:
+          aws-s3-bucket-name: ${{ steps.config.outputs.artifactBucket }}
+          target-path: "target/app.jar"
+          aws-s3-key-prefix: "builds/${{ env.CDK_S3_KEY_NAME }}/"
+
+      - name: trigger development deployment pipelines
+        uses: capralifecycle/actions-lib/trigger-deployment-pipeline@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.deploy-to-dev }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        with:
+          pipelines: ${{ steps.config.outputs.devPipelines }}
+          aws-s3-bucket-name: ${{ steps.config.outputs.artifactBucket }}
+          trigger-type: "artifact"
+          # NOTE: The key passed to artifact-parameters will be the name of
+          # the SSM parameter where the reference to the artifact is stored.
+          artifact-parameters: "dev${{ env.CDK_S3_KEY_NAME }}S3key=${{ steps.upload-s3-artifact.outputs.aws-s3-key }}"
+
+      - name: trigger production deployment pipelines
+        uses: capralifecycle/actions-lib/trigger-deployment-pipeline@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        with:
+          pipelines: ${{ steps.config.outputs.prodPipelines }}
+          aws-s3-bucket-name: ${{ steps.config.outputs.artifactBucket }}
+          trigger-type: "artifact"
+          # NOTE: The key passed to artifact-parameters will be the name of
+          # the SSM parameter where the reference to the artifact is stored.
+          artifact-parameters: "prod${{ env.CDK_S3_KEY_NAME }}S3key=${{ steps.upload-s3-artifact.outputs.aws-s3-key }}"
+
+      - uses: capralifecycle/actions-lib/slack-notify@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        # NOTE: We only want to be notified about failures on the default branch
+        if: ${{ failure() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        with:
+          bot-token: ${{ secrets.SHARED_SLACK_BOT_TOKEN }}
+          channel: ${{ env.BUILD_FAILURE_SLACK_CHANNEL }}
+
+      - uses: capralifecycle/actions-lib/configure-github-deployment@a6d9e4b11cdae620cc8e7fcc121de8466f6cfde9 # v1.6.0
+        # NOTE: Create GitHub deployment on default branch regardless of job status
+        if: ${{ always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}

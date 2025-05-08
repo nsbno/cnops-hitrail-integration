@@ -1,0 +1,22 @@
+{
+  "extends": [
+    "github>capralifecycle/renovate-config:default"
+  ],
+  "automerge": true,
+  "automergeType": "branch",
+  "packageRules": [
+    // Updating JDK major version may require manual migration, so we don't want Renovate to update
+    // it automatically. In addition to pom.xml, we define JDK version in .tool-versions (for
+    // version managers like mise). When upgrading JDK, bump the versions in those files and in the
+    // Renovate config here.
+    {
+      "matchFileNames": [
+        ".tool-versions"
+      ],
+      matchPackageNames: [
+        "java"
+      ],
+      "allowedVersions": "temurin-${javaJdkVersion}"
+    }
+  ]
+}
