@@ -1,4 +1,4 @@
-package no.cargonet.gts.adapter
+package no.cargonet.hitrail.integration
 
 import com.amazonaws.services.lambda.runtime.events.SQSEvent
 import java.util.UUID
@@ -10,7 +10,7 @@ class LambdaHandlerTest {
     // Our infra repo references our lambda handler by its full package name.
     // We use reflection here to verify that we find our handler at that path, and that it has a
     // constructor with no parameters (as expected by the AWS Lambda runtime).
-    val handlerClass = Class.forName("no.cargonet.gts.adapter.LambdaHandler")
+    val handlerClass = Class.forName("no.cargonet.hitrail.integration.LambdaHandler")
     handlerClass.getMethod("handle", SQSEvent::class.java)
     handlerClass.getConstructor() // Empty constructor
   }

@@ -1,4 +1,4 @@
-package no.cargonet.gts.adapter.serialization
+package no.cargonet.hitrail.integration.serialization
 
 import java.time.Instant
 import java.time.format.DateTimeFormatter

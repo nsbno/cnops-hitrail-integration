@@ -8,7 +8,7 @@ This project was generated using:
 ```shell
 mvn archetype:generate -DarchetypeCatalog=local \
   -DarchetypeGroupId=no.liflig -DarchetypeArtifactId=lambda-baseline-archetype -DarchetypeVersion=RELEASE \
-  -DgroupId=no.cargonet -DartifactId=cnops-hitrail-integration -Dversion=1.0.0 -Dpackage=no.cargonet.gts.adapter \
+  -DgroupId=no.cargonet -DartifactId=cnops-hitrail-integration -Dversion=1.0.0 -Dpackage=no.cargonet.hitrail.integration \
   -DgitRepoName=cnops-hitrail-integration \
   -DsonarProjectKey=capralifecycle_todo \
   "-DbuildFailureSlackChannel=#TODO" \

@@ -1,9 +1,9 @@
-package no.cargonet.gts.adapter
+package no.cargonet.hitrail.integration
 
 import java.time.Instant
 import java.util.Properties
 import kotlinx.serialization.Serializable
-import no.cargonet.gts.adapter.serialization.SerializableInstant
+import no.cargonet.hitrail.integration.serialization.SerializableInstant
 import no.liflig.properties.intRequired
 import no.liflig.properties.loadProperties
 import no.liflig.properties.stringNotNull

@@ -1,6 +1,6 @@
 @file:Suppress("CanBeParameter")
 
-package no.cargonet.gts.adapter
+package no.cargonet.hitrail.integration
 
 import com.amazonaws.services.lambda.runtime.events.SQSEvent
 import no.liflig.logging.getLogger
@@ -17,7 +17,7 @@ private val log = getLogger {}
  * don't have to re-initialize dependencies.
  *
  * When setting up this lambda in AWS CDK, set the `handler` property to
- * `no.cargonet.gts.adapter.LambdaHandler::handle`.
+ * `no.cargonet.hitrail.integration.LambdaHandler::handle`.
  */
 class LambdaHandler(
     private val config: Config = Config.load(),
